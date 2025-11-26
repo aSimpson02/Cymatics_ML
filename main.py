@@ -4,12 +4,11 @@ import subprocess
 import shutil
 from pathlib import Path
 
-import numpy as np           
+import numpy as np
 import librosa
 from flask import Flask, request, url_for, render_template_string, jsonify
 
 from cymatics_viz import save_cymatic_image
-
 
 
 
@@ -38,14 +37,14 @@ def allowed_file(filename: str) -> bool:
 
 
 def tempo_to_freq(tempo_bpm: float) -> float:
-    """Convert BPM -> frequency(Hz) for cymatics pattern."""
+    """Convert BPM → Hz for cymatic pattern."""
     if tempo_bpm is None or tempo_bpm <= 0:
         return 1.0
     return max(tempo_bpm / 60.0, 0.5)
 
 
 def analyze_audio_file(path: Path):
-    """Extract tempo + duration from WAV/MP3/OGG etc."""
+    """Load a local audio file and compute duration, tempo & cymatic freq."""
     print(f"[librosa] Loading audio: {path}")
     y, sr = librosa.load(str(path), sr=None, mono=True)
 
@@ -60,29 +59,25 @@ def analyze_audio_file(path: Path):
 
     freq_hz = tempo_to_freq(tempo_bpm)
 
-    print(f"[analysis] duration={duration_sec:.2f}s tempo={tempo_bpm:.2f} freq={freq_hz:.2f}Hz")
+    print(f"[analysis] duration={duration_sec:.2f}s tempo={tempo_bpm:.2f} BPM freq={freq_hz:.2f} Hz")
     return duration_sec, tempo_bpm, freq_hz
-
 
 
 def ffmpeg_convert_to_wav(src: Path, dst: Path):
     """
-    Convert ANY audio file (webm/ogg/m4a/mp3/etc) to WAV.
-    Always attempts the actual installed Homebrew ffmpeg path first.
+    Convert ANY audio file (webm/ogg/m4a/mp3/etc) to WAV using ffmpeg.
 
-    This avoids PATH issues inside Python/Flask.
+    Prefer the explicit Homebrew path to avoid PATH weirdness.
     """
-
-
+    # Prefer Homebrew path
     ffmpeg_bin = Path("/opt/homebrew/bin/ffmpeg")
 
-
     if not ffmpeg_bin.exists():
-        print("[ffmpeg] Homebrew ffmpeg not found. Trying PATH...")
+        print("[ffmpeg] /opt/homebrew/bin/ffmpeg not found, trying PATH...")
         found = shutil.which("ffmpeg")
         if found is None:
             raise RuntimeError(
-                "ffmpeg not found on system. Install it or ensure it's in PATH."
+                "ffmpeg not found on system. Install it or ensure it is in PATH."
             )
         ffmpeg_bin = Path(found)
 
@@ -99,12 +94,7 @@ def ffmpeg_convert_to_wav(src: Path, dst: Path):
     ]
 
     try:
-        subprocess.run(
-            cmd,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print("[ffmpeg] Conversion OK")
     except subprocess.CalledProcessError as e:
         print("[ffmpeg] Conversion FAILED")
@@ -287,7 +277,7 @@ PAGE_TEMPLATE = """
         </div>
 
         <p style="margin-top:16px;font-size:12px;color:#9ca3af;">
-          Mic access works at <code>http://localhost</code>.  
+          Mic access works at <code>http://localhost</code>.
         </p>
       </div>
 
@@ -418,7 +408,6 @@ def index():
             upload_path = UPLOAD_FOLDER / f"upload_{uid}{ext}"
             file.save(str(upload_path))
 
-            # Convert to WAV if needed
             if ext != ".wav":
                 wav_path = UPLOAD_FOLDER / f"upload_{uid}.wav"
                 try:
@@ -426,8 +415,14 @@ def index():
                     audio_path = wav_path
                 except Exception as e:
                     error = f"Conversion failed: {e}"
-                    return render_template_string(PAGE_TEMPLATE, error=error)
-
+                    return render_template_string(
+                        PAGE_TEMPLATE,
+                        error=error,
+                        duration_sec=None,
+                        tempo_bpm=None,
+                        freq_hz=None,
+                        image_url=None,
+                    )
             else:
                 audio_path = upload_path
 
